@@ -12,9 +12,18 @@ pub async fn iniciar() {
     
     println!("--- Servidor de Chat Iniciado ---");
     println!("Rodando em 0.0.0.0:8080");
-
+    let mut id_contador = 0;
     loop {
+        
         let (mut socket, addr) = listener.accept().await.unwrap();
+
+        // 2. Incrementamos o contador para o novo cliente
+        id_contador += 1;
+        
+        // Vamos capturar o valor atual numa variável imutável apenas por clareza,
+        // mas você poderia usar id_contador direto que o 'move' copiaria igual.
+        let meu_id = id_contador;
+
         println!("Novo cliente conectado: {}", addr);
 
         let tx = tx.clone();
@@ -35,7 +44,7 @@ pub async fn iniciar() {
                         match result {
                             Ok(0) => break,
                             Ok(_) => {
-                                let msg_final = format!("{}: {}", "Pessoa", line);
+                                let msg_final = format!("{} {} : {}", "Pessoa", meu_id, line);
                                 print!("{}", msg_final); // Printa no servidor
                                 // Envia para todos
                                 let _ = tx.send((msg_final, addr)); 
