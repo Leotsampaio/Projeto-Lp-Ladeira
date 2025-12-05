@@ -24,24 +24,40 @@ async fn main() {
             let mut linha_do_servidor = String::new();
             let mut linha_do_usuario = String::new();
 
+            let mut primeira_mensagem = true;
+
             loop {
                 tokio::select! {
+                    // Mensagem do servidor
                     res = reader.read_line(&mut linha_do_servidor) => {
-                        if res.unwrap() == 0 { 
+                        if res.unwrap() == 0 {
                             println!("Servidor desconectou.");
-                            break; 
+                            break;
                         }
                         print!("{}", linha_do_servidor);
                         linha_do_servidor.clear();
                     }
 
+                    // Entrada do usuário
                     res = stdin.read_line(&mut linha_do_usuario) => {
-                        if res.unwrap() == 0 { break; } 
+                        if res.unwrap() == 0 { break; }
+                        
+                        if primeira_mensagem {
+                            // Mensagem local amigável
+                            print!("Bem-vindo ao servidor, {}!\n", linha_do_usuario.trim());
+                            primeira_mensagem = false;
+                        } else {
+                            // Para mensagens normais
+                            print!("[eu]: {}", linha_do_usuario);
+                        }
+
+                        // Envia para o servidor
                         writer.write_all(linha_do_usuario.as_bytes()).await.unwrap();
                         linha_do_usuario.clear();
                     }
                 }
             }
+
         }
         Err(e) => {
             println!("Falha ao conectar: {}", e);
