@@ -35,7 +35,7 @@ pub async fn iniciar() {
                         match result {
                             Ok(0) => break,
                             Ok(_) => {
-                                let msg_final = format!("{}: {}", addr, line);
+                                let msg_final = format!("{}: {}", "Pessoa", line);
                                 print!("{}", msg_final); // Printa no servidor
                                 // Envia para todos
                                 let _ = tx.send((msg_final, addr)); 
