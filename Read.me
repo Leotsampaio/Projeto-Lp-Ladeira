@@ -1,0 +1,20 @@
+# 💬 Chat TCP em Rust (Servidor & Cliente)
+
+Este projeto é um sistema de chat simples via terminal, onde um computador atua como **Servidor** (recebendo conexões) e outros atuam como **Clientes** (enviando mensagens).
+
+---
+
+## 🚀 Pré-requisitos
+
+### 1. Rust Instalado
+Certifique-se de ter o Rust instalado. Se não tiver:
+- **Windows/Mac/Linux:** [rustup.rs](https://rustup.rs/)
+
+### 2. (APENAS WINDOWS) Ferramentas de C++
+Se você está no Windows e encontrar erros como `link.exe not found` ou `dlltool not found`, você precisa configurar o ambiente para MSVC:
+
+1. Baixe o **Build Tools para Visual Studio 2022** ([Link da Microsoft](https://visualstudio.microsoft.com/visual-cpp-build-tools/)).
+2. Durante a instalação, marque a caixa: **"Desenvolvimento para desktop com C++"**.
+3. Após instalar, abra o terminal e defina o Rust para usar o padrão MSVC:
+   ```powershell
+   rustup default stable-x86_64-pc-windows-msvc
