@@ -50,7 +50,7 @@ pub async fn iniciar() {
             let mut reader = BufReader::new(reader);
             let mut line = String::new();
 
-            // 1) Perguntar e registrar nome (João)
+            // 1) Perguntar e registrar nome
             if let Err(e) = writer.write_all(b"Digite seu nome/apelido:\n").await {
                 eprintln!("Falha ao escrever para {}: {}", addr, e);
                 return;
@@ -58,7 +58,6 @@ pub async fn iniciar() {
 
             let nome: String = match reader.read_line(&mut line).await {
                 Ok(0) => {
-                    // cliente desconectou antes de enviar nome
                     eprintln!("{} desconectou sem enviar nome", addr);
                     return;
                 }
@@ -83,18 +82,18 @@ pub async fn iniciar() {
                 users.insert(addr, nome.clone());
             }
 
-            // Broadcast de entrada: "[Servidor]: Nome entrou no chat."
+            // Broadcast de entrada
             let entrada_msg = format!("[Servidor]: {} entrou no chat.\n", nome);
-            // Pode falhar se não houver assinantes, ignore o erro
             let _ = tx.send((entrada_msg.clone(), addr));
 
-            // 2) Loop principal: ler mensagens do cliente e broadcast (formatadas)
+            // Loop principal
             loop {
                 tokio::select! {
+                    // Lendo mensagem do cliente
                     result = reader.read_line(&mut line) => {
                         match result {
                             Ok(0) => {
-                                // EOF: cliente desconectou
+                                // Cliente desconectou
                                 if let Some(nome_saida) = remove_usuario(&usuarios, addr).await {
                                     let saida_msg = format!("[Servidor]: {} saiu do chat.\n", nome_saida);
                                     let _ = tx.send((saida_msg.clone(), addr));
@@ -102,48 +101,67 @@ pub async fn iniciar() {
                                 break;
                             }
                             Ok(_) => {
-                                let texto = line.clone(); // inclui \n
+                                let texto_trim = line.trim().to_string();
                                 line.clear();
 
-                                let texto_trim = texto.trim_end().to_string();
+                                // ===== COMANDOS =====
+                                if texto_trim.starts_with('/') {
+                                    let mut partes = texto_trim.splitn(2, ' ');
+                                    let comando = partes.next().unwrap_or("");
+                                    let argumento = partes.next().unwrap_or("");
 
-                                // Tratamento simples de comandos aqui (funciona para o grupo).
-                                // Matheus pode optar por substituir essa lógica pelo interpretador completo.
-                                if texto_trim == "/list" {
-                                    // responde só para este cliente
-                                    let lista = get_lista_usuarios(&usuarios).await;
-                                    if let Err(e) = writer.write_all(lista.as_bytes()).await {
-                                        eprintln!("Erro escrevendo /list para {}: {}", addr, e);
-                                        // continua a execução; não forçamos desconexão
+                                    match comando {
+                                        "/list" => {
+                                            let lista = get_lista_usuarios(&usuarios).await;
+                                            let _ = writer.write_all(lista.as_bytes()).await;
+                                        }
+
+                                        "/quit" => {
+                                            if let Some(nome_saida) = remove_usuario(&usuarios, addr).await {
+                                                let saida_msg = format!("[Servidor]: {} saiu do chat.\n", nome_saida);
+                                                let _ = tx.send((saida_msg.clone(), addr));
+                                            }
+                                            let _ = writer.write_all(b"Saindo do chat...\n").await;
+                                            break;
+                                        }
+
+                                        "/help" => {
+                                            let ajuda = "Comandos disponíveis:\n/list  - lista usuários online\n/nick <novo_nome> - muda seu apelido\n/quit  - sair do chat\n/help  - mostra esta ajuda\n";
+                                            let _ = writer.write_all(ajuda.as_bytes()).await;
+                                        }
+
+                                        "/nick" => {
+                                            let novo_nome = argumento.trim();
+                                            if !novo_nome.is_empty() {
+                                                let mut users = usuarios.lock().await;
+                                                if let Some(nome_antigo) = users.insert(addr, novo_nome.to_string()) {
+                                                    let msg = format!("[Servidor]: {} mudou o nome para {}\n", nome_antigo, novo_nome);
+                                                    let _ = tx.send((msg, addr));
+                                                    let _ = writer.write_all(format!("Seu nome agora é {}\n", novo_nome).as_bytes()).await;
+                                                }
+                                            } else {
+                                                let _ = writer.write_all(b"Uso correto: /nick <novo_nome>\n").await;
+                                            }
+                                        }
+
+                                        _ => {
+                                            let _ = writer.write_all(b"Comando desconhecido. Use /help para ver os comandos.\n").await;
+                                        }
                                     }
-                                    continue; // não broadcast /list
+
+                                } else {
+                                    // ===== MENSAGEM NORMAL =====
+                                    let nome_atual = {
+                                        let users = usuarios.lock().await;
+                                        users.get(&addr).cloned().unwrap_or_else(|| format!("Pessoa{}", meu_id))
+                                    };
+                                    let msg_final = format!("[{}]: {}\n", nome_atual, texto_trim);
+                                    print!("{}", msg_final);
+                                    let _ = tx.send((msg_final, addr));
                                 }
-
-                                if texto_trim == "/quit" {
-                                    // Remove usuário e avisa todos
-                                    if let Some(nome_saida) = remove_usuario(&usuarios, addr).await {
-                                        let saida_msg = format!("[Servidor]: {} saiu do chat.\n", nome_saida);
-                                        let _ = tx.send((saida_msg.clone(), addr));
-                                    }
-                                    // Fecha a conexão para este cliente
-                                    break;
-                                }
-
-                                // Mensagem normal -> formata e broadcast
-                                let nome_atual = {
-                                    let users = usuarios.lock().await;
-                                    users.get(&addr).cloned().unwrap_or_else(|| format!("Pessoa{}", meu_id))
-                                };
-
-                                let msg_final = format!("[{}]: {}\n", nome_atual.trim(), texto_trim);
-                                print!("{}", msg_final); // log no servidor
-
-                                // Envia para todos (quem receber faz filtro para não ecoar para o remetente)
-                                let _ = tx.send((msg_final.clone(), addr));
                             }
                             Err(e) => {
                                 eprintln!("Erro lendo de {}: {}", addr, e);
-                                // tratar como desconexão
                                 if let Some(nome_saida) = remove_usuario(&usuarios, addr).await {
                                     let saida_msg = format!("[Servidor]: {} saiu do chat.\n", nome_saida);
                                     let _ = tx.send((saida_msg.clone(), addr));
@@ -153,11 +171,10 @@ pub async fn iniciar() {
                         }
                     }
 
-                    // Recebendo broadcasts de outros clientes
+                    // Recebendo broadcasts
                     result = rx.recv() => {
                         match result {
                             Ok((msg, sender_addr)) => {
-                                // Não reenvia para o próprio remetente
                                 if sender_addr != addr {
                                     if let Err(e) = writer.write_all(msg.as_bytes()).await {
                                         eprintln!("Erro escrevendo para {}: {}", addr, e);
@@ -168,35 +185,30 @@ pub async fn iniciar() {
                                 eprintln!("Client {} lagged {} mensagens", addr, n);
                             }
                             Err(broadcast::error::RecvError::Closed) => {
-                                // Canal fechado; finaliza
                                 break;
                             }
                         }
                     }
-                } // tokio::select
-            } // loop -> final da conexão
-        }); // tokio::spawn
-    } // loop accept
-} // fn iniciar
+                }
+            }
+        });
+    }
+}
 
 // -----------------------------
-// FUNÇÕES PÚBLICAS/HELPERS PARA INTEGRAÇÃO
+// FUNÇÕES PÚBLICAS/HELPERS
 // -----------------------------
 
-/// Registra um usuário manualmente (útil em testes ou integração)
 pub async fn registrar_usuario(usuarios: &Usuarios, addr: SocketAddr, nome: String) {
     let mut users = usuarios.lock().await;
     users.insert(addr, nome);
 }
 
-/// Remove o usuário do mapa e retorna o nome (se havia)
 pub async fn remove_usuario(usuarios: &Usuarios, addr: SocketAddr) -> Option<String> {
     let mut users = usuarios.lock().await;
     users.remove(&addr)
 }
 
-/// Retorna a lista formatada de usuários (string pronta para envio ao cliente)
-/// Uso: let lista = get_lista_usuarios(&usuarios).await;
 pub async fn get_lista_usuarios(usuarios: &Usuarios) -> String {
     let users = usuarios.lock().await;
     let mut lista = String::from("Usuários online:\n");
@@ -206,7 +218,6 @@ pub async fn get_lista_usuarios(usuarios: &Usuarios) -> String {
     lista
 }
 
-/// Recupera uma cópia do vetor de nomes (útil para testes ou outras integrações)
 pub async fn obter_nomes(usuarios: &Usuarios) -> Vec<String> {
     let users = usuarios.lock().await;
     users.values().cloned().collect()
